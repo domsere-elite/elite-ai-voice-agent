@@ -12,16 +12,28 @@ logger = logging.getLogger("elite-agent.crm")
 
 CRM_BASE = os.getenv("CRM_BASE_URL", "https://crm.eliteportmgmt.com/api/voice")
 
+_session: aiohttp.ClientSession | None = None
+
+
+def _get_session() -> aiohttp.ClientSession:
+    """Return a shared aiohttp session (lazily created, reuses connections)."""
+    global _session
+    if _session is None or _session.closed:
+        _session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=10),
+        )
+    return _session
+
 
 async def _post(endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Fire a POST to the CRM and return the JSON response."""
     url = f"{CRM_BASE}/{endpoint}"
     logger.info("CRM POST %s  payload_keys=%s", url, list(payload.keys()))
-    async with aiohttp.ClientSession() as session:
-        async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            body = await resp.json()
-            logger.info("CRM %s → %s", resp.status, body.get("found", "ok"))
-            return body
+    session = _get_session()
+    async with session.post(url, json=payload) as resp:
+        body = await resp.json()
+        logger.info("CRM %s → %s", resp.status, body.get("found", "ok"))
+        return body
 
 
 # ── Account lookup ──────────────────────────────────────────────────────

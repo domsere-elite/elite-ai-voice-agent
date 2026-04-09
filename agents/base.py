@@ -8,7 +8,6 @@ duplicating tool definitions.
 from __future__ import annotations
 
 import logging
-import os
 
 from livekit.agents import Agent, RunContext, function_tool
 
@@ -16,8 +15,6 @@ import crm
 from models import UserData
 
 logger = logging.getLogger("elite-agent")
-
-SPECIALIST_PHONE = os.getenv("SPECIALIST_PHONE", "+18333814416")
 
 # ── Global system prompt (prepended to every agent's instructions) ──────
 

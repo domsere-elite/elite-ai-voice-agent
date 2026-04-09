@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 
@@ -14,21 +13,19 @@ from models import UserData
 logger = logging.getLogger("elite-agent.closing")
 
 SPECIALIST_PHONE = os.getenv("SPECIALIST_PHONE", "+18333814416")
-SIP_TRUNK_ID = os.getenv("SIP_TRUNK_ID", "")
 
 
 async def _sip_transfer(room_name: str, participant_identity: str, phone: str):
     """Execute a cold SIP transfer to *phone*."""
     try:
-        lk = api.LiveKitAPI()
-        await lk.sip.transfer_sip_participant(
-            api.TransferSIPParticipantRequest(
-                room_name=room_name,
-                participant_identity=participant_identity,
-                transfer_to=phone,
+        async with api.LiveKitAPI() as lk:
+            await lk.sip.transfer_sip_participant(
+                api.TransferSIPParticipantRequest(
+                    room_name=room_name,
+                    participant_identity=participant_identity,
+                    transfer_to=phone,
+                )
             )
-        )
-        await lk.aclose()
         logger.info("SIP transfer to %s succeeded", phone)
     except Exception:
         logger.exception("SIP transfer to %s failed", phone)
@@ -66,9 +63,23 @@ class EndRefusedAgent(Agent):
         self.session.generate_reply()
 
 
-# ── Transfer to specialist ───────────────────────────────────────────────
+# ── SIP transfer agents ─────────────────────────────────────────────────
 
-class TransferSpecialistAgent(Agent):
+class _TransferAgent(Agent):
+    """Base for agents that say a message then transfer the call."""
+
+    async def on_enter(self):
+        self.session.generate_reply()
+
+    @function_tool
+    async def execute_sip_transfer(self, context: RunContext[UserData]) -> str:
+        """Transfers the SIP call to the specialist line."""
+        ud = context.userdata
+        await _sip_transfer(ud.room_name, ud.participant_identity, SPECIALIST_PHONE)
+        return "Transfer initiated. Goodbye."
+
+
+class TransferSpecialistAgent(_TransferAgent):
     def __init__(self):
         super().__init__(
             instructions=(
@@ -77,20 +88,8 @@ class TransferSpecialistAgent(Agent):
             ),
         )
 
-    async def on_enter(self):
-        self.session.generate_reply()
 
-    @function_tool
-    async def execute_sip_transfer(self, context: RunContext[UserData]) -> str:
-        """Transfers the SIP call to the specialist line."""
-        ud = context.userdata
-        await _sip_transfer(ud.room_name, ud.participant_identity, SPECIALIST_PHONE)
-        return "Transfer initiated. Goodbye."
-
-
-# ── Transfer — attorney mentioned ────────────────────────────────────────
-
-class TransferAttorneyAgent(Agent):
+class TransferAttorneyAgent(_TransferAgent):
     def __init__(self):
         super().__init__(
             instructions=(
@@ -99,13 +98,3 @@ class TransferAttorneyAgent(Agent):
                 "Do NOT ask for any identity information or other details."
             ),
         )
-
-    async def on_enter(self):
-        self.session.generate_reply()
-
-    @function_tool
-    async def execute_sip_transfer(self, context: RunContext[UserData]) -> str:
-        """Transfers the SIP call to the specialist line."""
-        ud = context.userdata
-        await _sip_transfer(ud.room_name, ud.participant_identity, SPECIALIST_PHONE)
-        return "Transfer initiated. Goodbye."

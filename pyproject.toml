@@ -1,12 +1,11 @@
 [project]
 name = "elite-voice-agent"
-version = "0.1.0"
-description = "Elite Portfolio Management — Inbound voice agent powered by LiveKit"
+version = "0.2.0"
+description = "Elite Portfolio Management — Inbound voice agent powered by LiveKit Cloud"
 requires-python = ">=3.11"
 dependencies = [
-    "livekit-agents[openai,silero,deepgram,turn-detector]~=1.4",
+    "livekit-agents[silero,turn-detector]~=1.4",
     "livekit-api>=1.0",
-    "telnyx-livekit-plugin @ git+https://github.com/team-telnyx/telnyx-livekit-plugin.git#subdirectory=telnyx-livekit-plugin",
     "aiohttp>=3.9",
     "python-dotenv>=1.0",
 ]
@@ -17,6 +16,9 @@ dev = [
     "pytest-asyncio>=0.23",
 ]
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"

@@ -1,9 +1,14 @@
-"""Elite Portfolio Management — Inbound Voice Agent (LiveKit).
+"""Elite Portfolio Management — Inbound Voice Agent (LiveKit Cloud).
 
 Entry point.  Run with:
     python agent.py
 or:
     livekit-agents start agent.py
+
+All AI models (LLM, STT, TTS) are served through LiveKit Inference —
+no separate OpenAI / Deepgram / Telnyx API keys required.  Only your
+LiveKit Cloud credentials (LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET)
+are needed.
 """
 
 from __future__ import annotations
@@ -14,8 +19,8 @@ import os
 
 from dotenv import load_dotenv
 
-from livekit.agents import AgentSession, JobContext, JobProcess, AgentServer
-from livekit.plugins import openai, silero, telnyx
+from livekit.agents import AgentSession, JobContext, JobProcess, AgentServer, inference
+from livekit.plugins import silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from models import UserData
@@ -40,22 +45,19 @@ server.setup_fnc = prewarm
 
 BEGIN_MESSAGE_DELAY = 1.2  # seconds — matches Retell begin_message_delay_ms
 
-# Boosted keywords for STT accuracy on debt-collection terminology
-BOOSTED_KEYWORDS = [
-    "payment", "balance", "settlement", "arrangement", "account",
-    "verification", "dispute", "attorney", "cease", "desist",
-    "pago", "saldo", "deuda", "acuerdo",
-]
+# Model configuration (override via env vars)
+STT_MODEL = os.getenv("STT_MODEL", "deepgram/nova-3")
+LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-4.1")
+TTS_MODEL = os.getenv("TTS_MODEL", "deepgram/aura-2")
+TTS_VOICE = os.getenv("TTS_VOICE", "apollo")
 
 
 @server.rtc_session(agent_name="epm-inbound")
 async def entrypoint(ctx: JobContext):
     await ctx.connect()
 
-    # Wait for the SIP caller to join the room
     participant = await ctx.wait_for_participant()
 
-    # Extract caller phone from SIP participant attributes
     caller_phone = (
         participant.attributes.get("sip.phoneNumber")
         or participant.attributes.get("sip.calleeNumber")
@@ -63,51 +65,18 @@ async def entrypoint(ctx: JobContext):
     )
     logger.info("Inbound call from %s (participant=%s)", caller_phone, participant.identity)
 
-    # Shared state for the entire call
     userdata = UserData(
         room_name=ctx.room.name,
         participant_identity=participant.identity,
         caller_phone=caller_phone,
     )
 
-    # ── Voice pipeline ──────────────────────────────────────────────
-    #
-    # STT & TTS routed through Telnyx (single-hop when SIP trunk is
-    # also Telnyx).  LLM stays on OpenAI for tool-calling quality.
-    #
-    # To fall back to direct Deepgram/OpenAI TTS, set
-    # USE_TELNYX_MEDIA=false in .env.
-
-    use_telnyx = os.getenv("USE_TELNYX_MEDIA", "true").lower() == "true"
-
-    if use_telnyx:
-        stt = telnyx.STT(
-            transcription_engine="deepgram",
-            model="nova-3",
-            language="en",
-            smart_format=True,
-            punctuate=True,
-            interim_results=True,
-            keyterm=BOOSTED_KEYWORDS,
-            endpointing=300,
-        )
-        tts = telnyx.TTS(
-            voice=os.getenv("TELNYX_TTS_VOICE", "Telnyx.NaturalHD.astra"),
-        )
-    else:
-        from livekit.plugins import deepgram as dg_plugin
-        stt = dg_plugin.STT(model="nova-3", language="en-US")
-        tts = openai.TTS(model="tts-1", voice="onyx", speed=1.14)
-
     session = AgentSession[UserData](
         userdata=userdata,
         vad=ctx.proc.userdata["vad"],
-        stt=stt,
-        llm=openai.LLM(
-            model="gpt-4.1",
-            temperature=0,
-        ),
-        tts=tts,
+        stt=inference.STT(model=STT_MODEL, language="en"),
+        llm=inference.LLM(model=LLM_MODEL, extra_kwargs={"temperature": 0}),
+        tts=inference.TTS(model=TTS_MODEL, voice=TTS_VOICE),
         turn_detection=MultilingualModel(),
     )
 
